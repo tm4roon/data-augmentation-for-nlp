@@ -19,7 +19,7 @@ import utils
 from trainer import Trainer
 
 from data_handler import (
-    data_loader,
+    Dataset,
     DataAugmentationIterator,
 )
 
@@ -31,26 +31,29 @@ from models.transformer import Transformer
 def main(args):
     device = torch.device('cuda' if args.gpu and torch.cuda.is_available else 'cpu')
 
+    tokenizer = Tokenizer(
+        args.vocab_file,
+        do_basic_tokenize=False, 
+        bos_token='[BOS]',
+        eos_token='[EOS]'
+    )
+    tokenizer.save_vocabulary(args.savedir)
+
     # construct Field objects
     train_data = data_loader(
-        args.train, 
+        tokenizer, args.train, 
         args.src_minlen, args.src_maxlen,
         args.tgt_minlen, args.tgt_maxlen,
     )
 
     valid_data = data_loader(
-        args.valid,
+        tokenizer, args.valid,
         args.src_minlen, args.src_maxlen,
         args.tgt_minlen, args.tgt_maxlen,
     )
 
-    tokenizer = Tokenizer(args.vocab_file, do_basic_tokenize=False, 
-                          bos_token='[BOS]', eos_token='[EOS]')
-    tokenizer.save_vocabulary(args.savedir)
-
     # set iterator
     train_iter = DataAugmentationIterator(
-        tokenizer=tokenizer,
         data=train_data,
         batchsize=args.batch_size,
         # augmentor=augmentor,
@@ -59,7 +62,6 @@ def main(args):
     )
 
     valid_iter = DataAugmentationIterator(
-        tokenizer=tokenizer,
         data=valid_data,
         batchsize=args.batch_size,
         augmentor=None,
@@ -70,10 +72,10 @@ def main(args):
     print(f'| [share] Vocabulary: {len(tokenizer)} types')
     print('')
 
-    tstats = train_iter.state_statics()
-    vstats = valid_iter.state_statics()
+    train_stats = train_iter.state_statics()
+    valid_stats = valid_iter.state_statics()
 
-    for name, stats in [('train', tstats), ('valid', vstats)]:
+    for name, stats in [('train', train_stats), ('valid', valid_stats)]:
         file_path = args.train if name == 'train' else args.valid
         print(f'{name}: {file_path}')
         for k in stats.keys():
@@ -82,11 +84,15 @@ def main(args):
             print(f" coverage: {coverage:.{4}}%")
         print('')
 
-    pad_idx = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
-    bos_idx = tokenizer.convert_tokens_to_ids(tokenizer.bos_token)
-    encoder = TransformerEncoder(args, len(tokenizer), pad_idx)
-    decoder = TransformerDecoder(args, len(tokenizer), pad_idx)
-    model = Transformer(encoder, decoder, bos_idx).to(device)
+    pad_idx = tokenizer.pad_token_id
+    bos_idx = tokenizer.bos
+
+    if args.arch == 'transformer':
+        encoder = TransformerEncoder(args, len(tokenizer), pad_idx)
+        decoder = TransformerDecoder(args, len(tokenizer), pad_idx)
+        model = Transformer(encoder, decoder, bos_idx).to(device)
+    elif args.arch == 'lm':
+        model = TranslationLM(args, len(tokenizer), pad_idx, bos_idx, sep_idx)
 
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
 
