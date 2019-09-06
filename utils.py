@@ -7,18 +7,8 @@ from collections import OrderedDict
 import torch
 import torch.optim as optim
 
-from pytorch_transformers import AdamW
 
 
-def get_optimizer(method):
-    if method == 'sgd':
-        return optim.SGD
-    elif method == 'adam':
-        return optim.Adam
-    elif method == 'adamw':
-        return AdamW
-    elif method == 'adagrad':
-        return optim.Adagrad
 
 
 # def load_vector(embed_path):

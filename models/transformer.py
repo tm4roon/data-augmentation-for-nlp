@@ -9,6 +9,7 @@ import torch.nn.functional as F
 
 from .encoder import TransformerEncoder
 from .decoder import TransformerDecoder
+from .utils import fill_ninf
 
 
 class Transformer(nn.Module):
@@ -36,9 +37,8 @@ class Transformer(nn.Module):
 
 
 class TranslationLM(TransformerDecoder):
-    def __init__(self, decoder, bos_idx, sep_idx):
-        super(TranslationLM, self).__init__()
-        super().__init__(,, no_enc_attn=True)
+    def __init__(self, args, vocabsize, pad_idx, bos_idx, sep_idx):
+        super().__init__(args, vocabsize, pad_idx, no_enc_attn=True)
         self.bos_idx = bos_idx
         self.sep_idx = sep_idx
 
@@ -66,7 +66,7 @@ class TranslationLM(TransformerDecoder):
         if not decoder_pad_mask.any():
             decoder_pad_mask = None
 
-        delim_idx = 1 if tgts is None else len(srcs)+1
+        delim_idx = 1 if tgts is None else len(srcs) + 1
         self_attn_mask = self.buffered_future_mask(x, delim_idx)
 
         # decoder layers
@@ -80,7 +80,8 @@ class TranslationLM(TransformerDecoder):
                 incremental_state,
            )
         x = self.out_projection(x)
-        return x
+        delim = 0 if tgts is None else srcs.size(0) + 1
+        return x[delim:]
 
     def buffered_future_mask(self, tensor, delim_idx=1):
         dim = tensor.size(0)
@@ -90,7 +91,6 @@ class TranslationLM(TransformerDecoder):
             self._future_mask = torch.triu(
                 fill_ninf(self._future_mask.resize_(dim, dim)), 1)
         return self._future_mask[:dim, :dim]
-        return dec_outs
 
     def generate(self, srcs, maxlen):
         slen, bsz = srcs.size()

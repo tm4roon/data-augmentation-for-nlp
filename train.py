@@ -13,19 +13,76 @@ import torch.nn as nn
 import torch.optim as optim
 
 from pytorch_transformers import BertTokenizer as Tokenizer
+from pytorch_transformers import AdamW
 
 import options
 import utils
-from trainer import Trainer
 
-from data_handler import (
+from dataset import (
     Dataset,
     DataAugmentationIterator,
 )
 
 from models.encoder import TransformerEncoder
 from models.decoder import TransformerDecoder
-from models.transformer import Transformer
+from models.transformer import (
+    Transformer,
+    TranslationLM,
+)
+
+
+def get_optimizer(method):
+    if method == 'sgd':
+        return optim.SGD
+    elif method == 'adam':
+        return optim.Adam
+    elif method == 'adamw':
+        return AdamW
+    elif method == 'adagrad':
+        return optim.Adagrad
+
+
+def step(epoch, model, iterator, criterion, optimizer,  device):
+        pbar = tqdm(iterator, dynamic_ncols=True) if model.training else iterator
+        total_loss = 0.0
+        for srcs, tgts in pbar:
+            optimizer.zero_grad()
+            srcs = srcs.to(device)
+            tgts = tgts.to(device)
+            dec_outs = model(srcs, tgts[:-1])
+            loss = criterion(
+                dec_outs.view(-1, dec_outs.size(2)), 
+                tgts[1:].view(-1)
+            )
+            total_loss += loss.item()
+
+            if model.training:
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+                optimizer.step()
+
+                # setting of progressbar
+                pbar.set_description(f'epoch {str(epoch).zfill(3)}')
+                progress_state = OrderedDict(
+                    loss=loss.item(),
+                    ppl=math.exp(loss.item()),
+                    bsz=srcs.size(1),
+                    lr=optimizer.param_groups[0]['lr'], 
+                    clip=args.clip)
+                pbar.set_postfix(progress_state)
+        
+        if model.training:
+            pbar.close()
+
+        total_loss /= len(iterator)
+
+        mode = 'train' if model.training else 'valid'
+        print(f'| epoch {str(epoch).zfill(3)} | {mode} ', end='') 
+        print(f'| loss {total_loss:.{4}} ', end='')
+        print(f'| ppl {math.exp(total_loss):.{4}} ', end='')
+        print('')
+
+        return total_loss
 
 
 def main(args):
@@ -40,14 +97,14 @@ def main(args):
     tokenizer.save_vocabulary(args.savedir)
 
     # construct Field objects
-    train_data = data_loader(
-        tokenizer, args.train, 
+    train_data = Dataset(
+        args.train, tokenizer,
         args.src_minlen, args.src_maxlen,
         args.tgt_minlen, args.tgt_maxlen,
     )
 
-    valid_data = data_loader(
-        tokenizer, args.valid,
+    valid_data = Dataset(
+        args.valid, tokenizer,
         args.src_minlen, args.src_maxlen,
         args.tgt_minlen, args.tgt_maxlen,
     )
@@ -72,8 +129,8 @@ def main(args):
     print(f'| [share] Vocabulary: {len(tokenizer)} types')
     print('')
 
-    train_stats = train_iter.state_statics()
-    valid_stats = valid_iter.state_statics()
+    train_stats = train_data.state_statics()
+    valid_stats = valid_data.state_statics()
 
     for name, stats in [('train', train_stats), ('valid', valid_stats)]:
         file_path = args.train if name == 'train' else args.valid
@@ -85,14 +142,15 @@ def main(args):
         print('')
 
     pad_idx = tokenizer.pad_token_id
-    bos_idx = tokenizer.bos
+    bos_idx = tokenizer.bos_token_id
 
     if args.arch == 'transformer':
         encoder = TransformerEncoder(args, len(tokenizer), pad_idx)
         decoder = TransformerDecoder(args, len(tokenizer), pad_idx)
         model = Transformer(encoder, decoder, bos_idx).to(device)
-    elif args.arch == 'lm':
-        model = TranslationLM(args, len(tokenizer), pad_idx, bos_idx, sep_idx)
+    elif args.arch == 'translm':
+        sep_idx = tokenizer.sep_token_id
+        model = TranslationLM(args, len(tokenizer), pad_idx, bos_idx, sep_idx).to(device)
 
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
 
@@ -100,8 +158,6 @@ def main(args):
     optimizer = optimizer_fn(model.parameters(), lr=args.lr)
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
-
-    trainer = Trainer(model, criterion, optimizer, scheduler, args.clip)
 
     print('=============== MODEL ===============')
     print(model)
@@ -112,62 +168,19 @@ def main(args):
 
     epoch = 1
     max_epoch = args.max_epoch or math.inf
-    max_update = args.max_update or math.inf
     best_loss = math.inf
 
-    while epoch < max_epoch and trainer.n_updates < max_update and args.min_lr < trainer.get_lr():
+    while epoch < max_epoch and args.min_lr < optimizer.param_groups[0]['lr']:
         # train
-        with tqdm(train_iter, dynamic_ncols=True) as pbar:
-            train_loss = 0.0
-            trainer.model.train()
-            for srcs, tgts in pbar:
-                bsz = srcs.size(1)
-                srcs = srcs.to(device)
-                tgts = tgts.to(device)
-                loss = trainer.step(srcs, tgts)
-                train_loss += loss.item()
+        model.train()
+        train_loss = step(epoch, model, train_iter, criterion, optimizer, device)
 
-                # setting of progressbar
-                pbar.set_description(f"epoch {str(epoch).zfill(3)}")
-                progress_state = OrderedDict(
-                    loss=loss.item(),
-                    ppl=math.exp(loss.item()),
-                    bsz=bsz,
-                    lr=trainer.get_lr(), 
-                    clip=args.clip, 
-                    num_updates=trainer.n_updates)
-                pbar.set_postfix(progress_state)
-        train_loss /= len(train_iter)
-
-        print(f"| epoch {str(epoch).zfill(3)} | train ", end="") 
-        print(f"| loss {train_loss:.{4}} ", end="")
-        print(f"| ppl {math.exp(train_loss):.{4}} ", end="")
-        print(f"| lr {trainer.get_lr():.1e} ", end="")
-        print(f"| clip {args.clip} ", end="")
-        print(f"| num_updates {trainer.n_updates} |")
-        
-        # validation
-        valid_loss = 0.0
-        trainer.model.eval()
-        for srcs, tgts in valid_iter:
-            bsz = srcs.size(1)
-            srcs = srcs.to(device)
-            tgts = tgts.to(device)
-            loss = trainer.step(srcs, tgts)
-            valid_loss += loss.item()
-        valid_loss /= len(valid_iter)
-
-        print(f"| epoch {str(epoch).zfill(3)} | valid ", end="") 
-        print(f"| loss {valid_loss:.{4}} ", end="")
-        print(f"| ppl {math.exp(valid_loss):.{4}} ", end="")
-        print(f"| lr {trainer.get_lr():.1e} ", end="")
-        print(f"| clip {args.clip} ", end="")
-        print(f"| num_updates {trainer.n_updates} |")
+        model.eval()
+        valid_loss = step(epoch, model, valid_iter, criterion, optimizer, device)
 
         # saving model
         save_vars = {
             'epoch': epoch,
-            'iteration': trainer.n_updates,
             'best_loss': valid_loss if valid_loss < best_loss else best_loss,
             'args': args,
             'weights': model.state_dict()
@@ -183,7 +196,7 @@ def main(args):
         torch.save(save_vars, filename)
 
         # update
-        trainer.scheduler.step(valid_loss)
+        scheduler.step(valid_loss)
         epoch += 1
 
  

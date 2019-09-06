@@ -11,11 +11,10 @@ from .positional_embedding import (
 )
 
 from .multihead_attention import MultiheadAttn
-from .utils import Linear
-
-
-def fill_ninf(t):
-    return t.float().fill_(float('-inf')).type_as(t)
+from .utils import (
+    fill_ninf,
+    Linear
+)
 
 
 class TransformerDecoder(nn.Module):

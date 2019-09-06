@@ -8,9 +8,9 @@ from functools import reduce
 
 
 class Dataset(object):
-    def __init__(self, path, tokenizer, src_minlen, src_maxlen, tgt_minlen, tgt_maxlen, bos_token='[BOS]'):
+    def __init__(self, path, tokenizer, src_minlen, src_maxlen, 
+        tgt_minlen, tgt_maxlen, bos_token='[BOS]'):
         self.tokenizer = tokenizer
-
         self.pad_idx = tokenizer.pad_token_id
         self.mask_idx = tokenizer.mask_token_id
         self.unk_idx = tokenizer.unk_token_id
@@ -28,7 +28,7 @@ class Dataset(object):
         return len(self.examples)
 
     def preprocess(self, line):
-        src, tgt = line.split('\t')
+        src, tgt = line.rstrip().split('\t')
         src_words = self.tokenizer.tokenize(src)
         tgt_words = [self.bos_token] + self.tokenizer.tokenize(tgt)
 
@@ -36,6 +36,14 @@ class Dataset(object):
             and self.tgt_minlen <= len(tgt_words) <= self.tgt_maxlen:
             return (src, tgt)
 
+    def state_statics(self):
+        def statics(data):
+            tadd = lambda xs, ys: tuple(x+y for x, y in zip(xs, ys))
+            counts = reduce(tadd, [(len(s), s.count(self.unk_idx)) for s in data])
+            return {'n_tokens': counts[0], 'n_unks': counts[1]}
+        srcs, tgts = zip(*self.examples)
+        return {'src': statics(list(map(self.tokenizer.encode, srcs))), 
+                'tgt': statics(list(map(self.tokenizer.encode, tgts)))}
 
 # def load(path, src_minlen, src_maxlen, tgt_minlen, tgt_maxlen, bos_token='[BOS]'):
 #     def preprocess(line):
@@ -100,12 +108,12 @@ class DataAugmentationIterator(object):
                 pair[0] = self.augmentor(pair[0])
             if self.side in ['tgt', 'both']:
                 pair[1] = self.augmentor(pair[1])
-        return self.numericalize(pair) 
+        return self._numericalize(pair) 
 
     def _padding(self, bs):
         def pad(bs):
             maxlen = max([len(b) for b in bs])
-            return torch.tensor([b + [self.pad_idx for _ in range(maxlen-len(b))] for b in bs])
+            return torch.tensor([b + [self.data.pad_idx for _ in range(maxlen-len(b))] for b in bs])
 
         srcs, tgts = zip(*bs)
         srcs = pad(srcs)
@@ -116,11 +124,3 @@ class DataAugmentationIterator(object):
             tgts = tgts.t().contiguous()
         return (srcs, tgts)
 
-    def state_statics(self):
-        def statics(data):
-            tadd = lambda xs, ys: tuple(x+y for x, y in zip(xs, ys))
-            counts = reduce(tadd, [(len(s), s.count(self.unk_idx)) for s in data])
-            return {'n_tokens': counts[0], 'n_unks': counts[1]}
-        srcs, tgts = zip(*self.data)
-        return {'src': statics(self._numericalize(srcs)), 
-                'tgt': statics(self._numericalize(tgts))}
