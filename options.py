@@ -6,7 +6,7 @@ def train_opts(parser):
         help='filename of the train data')
     group.add_argument('--valid', default='./data/samples/unidic/sample_valid.tsv',
         help='filename of the validation data')
-    group.add_argument('--vocab-file', default='./data/samples/unidic/vocab.txt',
+    group.add_argument('--vocab-file', default='./data/vocab/bccwj-bpe.vocab',
         help='vocabulary file')
     group.add_argument('--src-minlen', type=int, default=0,
         help='minimum sentence length of source side for training')
@@ -32,6 +32,9 @@ def train_opts(parser):
         help='gradient cliping')
     group.add_argument('--gpu', action='store_true',
          help='whether gpu is used')
+    group.add_argument('--arch', choices=['transformer', 'translm'], 
+        default='transformer',
+        help='architecutre for machine translation')
     # group.add_argument('--gpus', '-gpus', type=int, nargs='*', default=[],
     #     help='list of gpu ids.')
     group.add_argument('--optimizer', choices=['sgd', 'adam', 'adamw', 'adagrad'],
@@ -74,6 +77,10 @@ def model_opts(parser):
         help='dropout after activation fucntion in self attention')
     group.add_argument('--attention-dropout', type=float, default=0.1,
         help='dropout in self attention')
+    group.add_argument('--encoder-normalize-before', action='store_true',
+        help='apply layernorm before each encoder block')
+    group.add_argument('--decoder-normalize-before', action='store_true',
+        help='apply layernorm before each decoder block')
     return group
 
 
