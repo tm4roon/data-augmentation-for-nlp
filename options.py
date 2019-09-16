@@ -2,9 +2,9 @@
 
 def train_opts(parser):
     group = parser.add_argument_group('Training')
-    group.add_argument('--train', default='./data/samples/unidic/sample_train.tsv',
+    group.add_argument('--train', default='./data/samples/sample_train.tsv',
         help='filename of the train data')
-    group.add_argument('--valid', default='./data/samples/unidic/sample_valid.tsv',
+    group.add_argument('--valid', default='./data/samples/sample_valid.tsv',
         help='filename of the validation data')
     group.add_argument('--vocab-file', default='./data/vocab/bccwj-bpe.vocab',
         help='vocabulary file')
@@ -94,8 +94,6 @@ def translate_opts(parser):
         help='batch size')
     group.add_argument('--maxlen', type=int, default=100,
         help='maximum length of output sentence')
-    # group.add_argument('--gpu', action='store_true',
-    #     help='whether gpu is used')
-    group.add_argument('--gpus', '-gpus', type=int, nargs='*', default=[],
-        help='list of gpu ids.')
+    group.add_argument('--gpu', action='store_true',
+         help='whether gpu is used')
     return group

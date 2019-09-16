@@ -16,7 +16,6 @@ from pytorch_transformers import BertTokenizer as Tokenizer
 from pytorch_transformers import AdamW
 
 import options
-import utils
 
 from dataset import (
     Dataset,
@@ -92,22 +91,44 @@ def main(args):
         args.vocab_file,
         do_basic_tokenize=False, 
         bos_token='[BOS]',
-        eos_token='[EOS]'
+        eos_token='[EOS]',
+        unk_token='[UNK]',
+        sep_token='[SEP]',
+        pad_token='[PAD]',
     )
+
+    if not os.path.exists(args.savedir):
+        os.mkdir(args.savedir)
+
     tokenizer.save_vocabulary(args.savedir)
 
     # construct Field objects
     train_data = Dataset(
-        args.train, tokenizer,
+        args.train, tokenizer, 
         args.src_minlen, args.src_maxlen,
-        args.tgt_minlen, args.tgt_maxlen,
+        args.tgt_minlen, args.tgt_maxlen, 
     )
 
     valid_data = Dataset(
-        args.valid, tokenizer,
+        args.valid, tokenizer, 
         args.src_minlen, args.src_maxlen,
         args.tgt_minlen, args.tgt_maxlen,
     )
+    # display data statistics
+    print(f'| [share] Vocabulary: {len(tokenizer)} types')
+    print('')
+
+    train_stats = train_data.state_statistics()
+    valid_stats = valid_data.state_statistics()
+
+    for name, stats in [('train', train_stats), ('valid', valid_stats)]:
+        file_path = args.train if name == 'train' else args.valid
+        print(f'{name}: {file_path}')
+        for k in stats.keys():
+            coverage = 100 * (stats[k]['n_tokens'] - stats[k]['n_unks']) / stats[k]['n_tokens']
+            print(f"| [{k}] {stats[k]['n_tokens']} tokens,", end='')
+            print(f" coverage: {coverage:.{4}}%")
+        print('')
 
     # set iterator
     train_iter = DataAugmentationIterator(
@@ -126,21 +147,6 @@ def main(args):
         repeat=False,
     )
 
-    print(f'| [share] Vocabulary: {len(tokenizer)} types')
-    print('')
-
-    train_stats = train_data.state_statics()
-    valid_stats = valid_data.state_statics()
-
-    for name, stats in [('train', train_stats), ('valid', valid_stats)]:
-        file_path = args.train if name == 'train' else args.valid
-        print(f'{name}: {file_path}')
-        for k in stats.keys():
-            coverage = 100 * (stats[k]['n_tokens'] - stats[k]['n_unks']) / stats[k]['n_tokens']
-            print(f"| [{k}] {stats[k]['n_tokens']} tokens,", end='')
-            print(f" coverage: {coverage:.{4}}%")
-        print('')
-
     pad_idx = tokenizer.pad_token_id
     bos_idx = tokenizer.bos_token_id
 
@@ -154,7 +160,7 @@ def main(args):
 
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
 
-    optimizer_fn = utils.get_optimizer(args.optimizer)
+    optimizer_fn = get_optimizer(args.optimizer)
     optimizer = optimizer_fn(model.parameters(), lr=args.lr)
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)

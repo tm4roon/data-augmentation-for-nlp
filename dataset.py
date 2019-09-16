@@ -8,18 +8,23 @@ from functools import reduce
 
 
 class Dataset(object):
-    def __init__(self, path, tokenizer, src_minlen, src_maxlen, 
-        tgt_minlen, tgt_maxlen, bos_token='[BOS]'):
+    def __init__(self, path, tokenizer, src_minlen, src_maxlen, tgt_minlen, 
+        tgt_maxlen, bos_token='[BOS]', eos_token='[EOS]', separator='\t', test=False):
         self.tokenizer = tokenizer
         self.pad_idx = tokenizer.pad_token_id
         self.mask_idx = tokenizer.mask_token_id
         self.unk_idx = tokenizer.unk_token_id
 
+        self.bos_token = bos_token
+        self.eos_token = eos_token
+        self.separator = separator
+
         self.src_minlen = src_minlen
         self.src_maxlen = src_maxlen
         self.tgt_minlen = tgt_minlen
         self.tgt_maxlen = tgt_maxlen
-        self.bos_token = bos_token
+
+        self.test = test
 
         with open(path, 'r') as f:
             self.examples = [self.preprocess(line) for line in f]
@@ -28,35 +33,28 @@ class Dataset(object):
         return len(self.examples)
 
     def preprocess(self, line):
-        src, tgt = line.rstrip().split('\t')
-        src_words = self.tokenizer.tokenize(src)
-        tgt_words = [self.bos_token] + self.tokenizer.tokenize(tgt)
+        pair = line.rstrip().split(self.separator)
+        src_words = self.tokenizer.tokenize(pair[0])
 
-        if self.src_minlen <= len(src_words) <= self.src_maxlen \
+        if not self.test:
+            pair[1] = self.bos_token + ' ' + pair[1] + ' ' + self.eos_token
+            tgt_words = self.tokenizer.tokenize(pair[1])
+            if self.src_minlen <= len(src_words) <= self.src_maxlen \
             and self.tgt_minlen <= len(tgt_words) <= self.tgt_maxlen:
-            return (src, tgt)
+                return pair
+        else:
+            if self.src_minlen <= len(src_words) <= self.src_maxlen:
+                return pair
 
-    def state_statics(self):
-        def statics(data):
+    def state_statistics(self):
+        def statistics(data):
             tadd = lambda xs, ys: tuple(x+y for x, y in zip(xs, ys))
             counts = reduce(tadd, [(len(s), s.count(self.unk_idx)) for s in data])
             return {'n_tokens': counts[0], 'n_unks': counts[1]}
-        srcs, tgts = zip(*self.examples)
-        return {'src': statics(list(map(self.tokenizer.encode, srcs))), 
-                'tgt': statics(list(map(self.tokenizer.encode, tgts)))}
 
-# def load(path, src_minlen, src_maxlen, tgt_minlen, tgt_maxlen, bos_token='[BOS]'):
-#     def preprocess(line):
-#         src, tgt = line.split('\t')
-#         src_words = src.rstrip().split(' ')
-#         tgt_words = [bos_token] + tgt.rstrip().split(' ')
-#         if src_minlen <= len(src_words) <= src_maxlen \
-#             and tgt_minlen <= len(tgt_words) <= tgt_maxlen:
-#             return (' '.join(src_words), ' '.join(tgt_words))
-# 
-#     with open(path) as f:
-#         data = [preprocess(line) for line in f]
-#         return data
+        fields = zip(*self.examples)
+        stats = [statistics(list(map(self.tokenizer.encode, field))) for field in fields]
+        return {'src': stats[0], 'tgt': stats[1]} if not self.test else {'src': stats[0]}
 
 
 class DataAugmentationIterator(object):
@@ -115,12 +113,10 @@ class DataAugmentationIterator(object):
             maxlen = max([len(b) for b in bs])
             return torch.tensor([b + [self.data.pad_idx for _ in range(maxlen-len(b))] for b in bs])
 
-        srcs, tgts = zip(*bs)
-        srcs = pad(srcs)
-        tgts = pad(tgts)
+        batches = zip(*bs)
+        batches = [pad(batch) for batch in batches]
 
         if not self.batch_first:
-            srcs = srcs.t().contiguous()
-            tgts = tgts.t().contiguous()
-        return (srcs, tgts)
+            batches = [batch.t().contiguous() for batch in batches]
+        return batches
 
