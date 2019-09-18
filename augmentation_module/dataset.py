@@ -6,6 +6,8 @@ import random
 import torch
 from functools import reduce
 
+from .scheduler import get_scheduler
+
 
 class Dataset(object):
     def __init__(self, path, tokenizer, src_minlen, src_maxlen, tgt_minlen, 
@@ -55,32 +57,38 @@ class Dataset(object):
         fields = zip(*self.examples)
         stats = [statistics(list(map(self.tokenizer.encode, field))) for field in fields]
         return {'src': stats[0], 'tgt': stats[1]} if not self.test else {'src': stats[0]}
-
+    
 
 class DataAugmentationIterator(object):
-    def __init__(self, data, batchsize, augmentor=None, side='both',
-        batch_first=False, shuffle=True, repeat=False):
-
+    def __init__(self, data, batchsize, max_epoch=-1, init_rate=0.0, side='both', 
+        augmentor=None, scheduling='constant', batch_first=False, shuffle=True):
+        self._initialize()
         self.data = data
-        self.augmentor = augmentor
-        self.side = side
-
         self.bsz = batchsize
         self.batch_first = batch_first
-
         self.shuffle = shuffle
-        self.repeat = repeat
+
+        self.augmentor = augmentor
+        scheduler_fn = get_scheduler(scheduling)
+        self.scheduler = scheduler_fn(init_rate, max_epoch)
+        self.side = side
 
     def __len__(self):
         return math.ceil(len(self.data)/self.bsz)
 
     def __iter__(self):
         while True:
+            self.augmentation_rate = self.scheduler(self.current_epoch)
             self._init_batches()
             for batch in self.batches:
+                self.n_update += 1
                 yield batch
-            if not self.repeat:
-                return
+            self.current_epoch += 1
+            return
+    
+    def _initialize(self):
+        self.n_update = 0
+        self.current_epoch = 1
 
     def _init_batches(self):
         # augment data and numericalize
@@ -103,9 +111,10 @@ class DataAugmentationIterator(object):
     def _augment(self, pair):
         if self.augmentor is not None:
             if self.side in ['src', 'both']:
-                pair[0] = self.augmentor(pair[0])
+                pair[0] = self.augmentor(pair[0], self.augmentation_rate)
             if self.side in ['tgt', 'both']:
-                pair[1] = self.augmentor(pair[1])
+                input_sent = ' '.join(pair[1].split(' ')[1:-1])
+                pair[1] = '[BOS] ' + self.augmentor(input_sent, self.augmentation_rate) + ' [EOS]'
         return self._numericalize(pair) 
 
     def _padding(self, bs):
@@ -119,4 +128,3 @@ class DataAugmentationIterator(object):
         if not self.batch_first:
             batches = [batch.t().contiguous() for batch in batches]
         return batches
-

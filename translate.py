@@ -59,10 +59,9 @@ def main(args):
 
     test_iter = DataAugmentationIterator(
         data=test_data,
-        batchsize=args.batch_size,
+        batchsize=args.batchsize,
         augmentor=None,
         shuffle=False,
-        repeat=False,
     )
 
     pad_idx = tokenizer.pad_token_id
@@ -83,6 +82,7 @@ def main(args):
         outs = model.generate(srcs, args.maxlen).transpose(0, 1).tolist()
         sents = [id2w(tokenizer, out) for out in outs]
         print('\n'.join(sents))
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

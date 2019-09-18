@@ -107,4 +107,4 @@ class TranslationLM(TransformerDecoder):
             output_tokens = output_tokens.max(2)[1][-1].unsqueeze(0)
             prev_tokens = torch.cat(
                 (prev_tokens, output_tokens), 0)
-        return prev_tokens[slen+3:]
+        return prev_tokens[slen+1:]

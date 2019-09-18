@@ -1,7 +1,18 @@
 # -*- coding: utf-8 -*-
 
+"""
+Dynamic data augmentation for sentence rewriting tasks such as summarization,
+grammatical error correction, text simplification, paraphrase generation and
+style transfer. Using `--arch` option, you can choose either transformer
+(Vaswani et al., 2017) or translation language model (Khandelwal et al. 2019,
+Hoang et al. 2019) for sentence rewriting. Also, you are able to augmentation
+way from the following six methods: dropout, blank, smooth, wordnet, word2vec, 
+and bert.
+"""
+
 import argparse
 import math
+import json
 import os
 from collections import OrderedDict
 
@@ -12,15 +23,18 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+import pytorch_transformers
 from pytorch_transformers import BertTokenizer as Tokenizer
-from pytorch_transformers import AdamW
 
 import options
 
-from dataset import (
+from augmentation_module.dataset import (
     Dataset,
     DataAugmentationIterator,
 )
+from augmentation_module import augmentor
+from augmentation_module import generator
+from augmentation_module import sampler
 
 from models.encoder import TransformerEncoder
 from models.decoder import TransformerDecoder
@@ -30,18 +44,15 @@ from models.transformer import (
 )
 
 
-def get_optimizer(method):
-    if method == 'sgd':
-        return optim.SGD
-    elif method == 'adam':
-        return optim.Adam
-    elif method == 'adamw':
-        return AdamW
-    elif method == 'adagrad':
-        return optim.Adagrad
+def display_stats(stats):
+    for k in stats.keys():
+        coverage = 100 * (stats[k]['n_tokens'] - stats[k]['n_unks']) / stats[k]['n_tokens']
+        print(f"| [{k}] {stats[k]['n_tokens']} tokens,", end='')
+        print(f" coverage: {coverage:.{4}}%")
+    print('')
 
 
-def step(epoch, model, iterator, criterion, optimizer,  device):
+def step(tokenizer, model, iterator, criterion, optimizer, lr_scheduler, device):
         pbar = tqdm(iterator, dynamic_ncols=True) if model.training else iterator
         total_loss = 0.0
         for srcs, tgts in pbar:
@@ -59,15 +70,21 @@ def step(epoch, model, iterator, criterion, optimizer,  device):
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), args.clip)
                 optimizer.step()
+                lr_scheduler.step()
 
                 # setting of progressbar
-                pbar.set_description(f'epoch {str(epoch).zfill(3)}')
+                augmentation_rate = iterator.augmentation_rate \
+                    if iterator.augmentor is not None else 0.0
+
+                pbar.set_description(f'epoch {str(iterator.current_epoch).zfill(3)}')
                 progress_state = OrderedDict(
                     loss=loss.item(),
                     ppl=math.exp(loss.item()),
                     bsz=srcs.size(1),
-                    lr=optimizer.param_groups[0]['lr'], 
-                    clip=args.clip)
+                    lr=optimizer.param_groups[0]['lr'],
+                    ar=augmentation_rate,
+                    nups=iterator.n_update,
+                )
                 pbar.set_postfix(progress_state)
         
         if model.training:
@@ -76,10 +93,9 @@ def step(epoch, model, iterator, criterion, optimizer,  device):
         total_loss /= len(iterator)
 
         mode = 'train' if model.training else 'valid'
-        print(f'| epoch {str(epoch).zfill(3)} | {mode} ', end='') 
+        print(f'| {mode} ', end='') 
         print(f'| loss {total_loss:.{4}} ', end='')
-        print(f'| ppl {math.exp(total_loss):.{4}} ', end='')
-        print('')
+        print(f'| ppl {math.exp(total_loss):.{4}} |')
 
         return total_loss
 
@@ -87,6 +103,7 @@ def step(epoch, model, iterator, criterion, optimizer,  device):
 def main(args):
     device = torch.device('cuda' if args.gpu and torch.cuda.is_available else 'cpu')
 
+    # set tokenizer
     tokenizer = Tokenizer(
         args.vocab_file,
         do_basic_tokenize=False, 
@@ -102,7 +119,11 @@ def main(args):
 
     tokenizer.save_vocabulary(args.savedir)
 
-    # construct Field objects
+    # save configure
+    with open(os.path.join(args.savedir, 'config.json'), 'w') as fo:
+        json.dump(vars(args), fo, indent=2)
+
+    # load dataset for training and validation
     train_data = Dataset(
         args.train, tokenizer, 
         args.src_minlen, args.src_maxlen,
@@ -114,42 +135,67 @@ def main(args):
         args.src_minlen, args.src_maxlen,
         args.tgt_minlen, args.tgt_maxlen,
     )
+
     # display data statistics
     print(f'| [share] Vocabulary: {len(tokenizer)} types')
     print('')
 
     train_stats = train_data.state_statistics()
     valid_stats = valid_data.state_statistics()
-
     for name, stats in [('train', train_stats), ('valid', valid_stats)]:
         file_path = args.train if name == 'train' else args.valid
         print(f'{name}: {file_path}')
-        for k in stats.keys():
-            coverage = 100 * (stats[k]['n_tokens'] - stats[k]['n_unks']) / stats[k]['n_tokens']
-            print(f"| [{k}] {stats[k]['n_tokens']} tokens,", end='')
-            print(f" coverage: {coverage:.{4}}%")
-        print('')
+        display_stats(stats)
+
+    # set data-augmentation module
+    if args.sampling_method == 'random':
+        sampling_fn = sampler.RandomSampler()
+  
+    if args.augment == 'base':
+        augmentor_fn = None
+    else:
+        to_word = False
+        if args.augment == 'dropout':
+            generator_fn = generator.DropoutGenerator()
+        elif args.augment == 'blank':
+            generator_fn = generator.BlankGenerator(
+                mask_token=tokenizer.mask_token)
+        elif args.augment == 'smooth':
+            generator_fn = generator.SmoothGenerator()
+        elif args.augment == 'wordnet':
+            generator_fn = generator.WordNetGenerator()
+            to_word = True
+        elif args.augment == 'word2vec':
+            generator_fn = generator.Word2vecGenerator()
+            to_word = True
+        elif args.augment == 'bert':
+            generator_fn = generator.BertGenerator()
+        augmentor_fn = augmentor.ReplacingAugmentor(
+            tokenizer, sampling_fn, generator_fn, to_word=to_word)
 
     # set iterator
     train_iter = DataAugmentationIterator(
         data=train_data,
-        batchsize=args.batch_size,
-        # augmentor=augmentor,
+        batchsize=args.batchsize,
+        max_epoch=args.max_epoch,
+        init_rate=args.init_replacing_rate,
+        side=args.side,
+        augmentor=augmentor_fn,
+        scheduling=args.ar_scheduler,
         shuffle=True,
-        repeat=False,
     )
 
     valid_iter = DataAugmentationIterator(
         data=valid_data,
-        batchsize=args.batch_size,
+        batchsize=args.batchsize,
         augmentor=None,
         shuffle=False,
-        repeat=False,
     )
 
     pad_idx = tokenizer.pad_token_id
     bos_idx = tokenizer.bos_token_id
 
+    # build model
     if args.arch == 'transformer':
         encoder = TransformerEncoder(args, len(tokenizer), pad_idx)
         decoder = TransformerDecoder(args, len(tokenizer), pad_idx)
@@ -160,10 +206,32 @@ def main(args):
 
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
 
-    optimizer_fn = get_optimizer(args.optimizer)
-    optimizer = optimizer_fn(model.parameters(), lr=args.lr)
+    # set optimizer
+    if args.optimizer == 'sgd':
+        optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    elif args.optimizer== 'adagrad':
+        optimizer = optim.Adagrad(model.parameters(), lr=args.lr)
+    elif args.optimizer == 'adam':
+        optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98),
+            eps=1e-09, weight_decay=0, amsgrad=False)
+    else:
+        raise NotImplementedError
 
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
+
+    # set scheduler
+    t_total = args.max_epoch * len(train_iter)
+    warmup_steps = math.floor(t_total * 0.04)
+    if args.lr_scheduler == 'constant':
+        lr_scheduler = pytorch_transformers.ConstantLRSchedule(optimizer)
+    elif args.lr_scheduler == 'warmup_constant':
+        lr_scheduler = pytorch_transformers.WarmupConstantSchedule(
+            optimizer, warmup_steps=warmup_steps, t_total=t_total)
+    elif args.lr_scheduler == 'warmup_linear':
+        lr_scheduler = pytorch_transformers.WarmupLinearSchedule(
+            optimizer, warmup_steps=warmup_steps, t_total=t_total)
+    else:
+        raise NotImplementedError
+
 
     print('=============== MODEL ===============')
     print(model)
@@ -176,13 +244,13 @@ def main(args):
     max_epoch = args.max_epoch or math.inf
     best_loss = math.inf
 
-    while epoch < max_epoch and args.min_lr < optimizer.param_groups[0]['lr']:
+    while epoch <= max_epoch:
         # train
         model.train()
-        train_loss = step(epoch, model, train_iter, criterion, optimizer, device)
+        train_loss = step(tokenizer, model, train_iter, criterion, optimizer, lr_scheduler, device)
 
         model.eval()
-        valid_loss = step(epoch, model, valid_iter, criterion, optimizer, device)
+        valid_loss = step(tokenizer, model, valid_iter, criterion, optimizer, lr_scheduler, device)
 
         # saving model
         save_vars = {
@@ -201,21 +269,15 @@ def main(args):
         filename = os.path.join(args.savedir, 'checkpoint_last.pt') 
         torch.save(save_vars, filename)
 
-        # update
-        scheduler.step(valid_loss)
         epoch += 1
 
  
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('''
-        An Implimentation of Transformer.
-        Attention is all you need. 
-        Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones,
-        Aidan N Gomez, Lukasz Kaiser, and Illia Polosukhin. 2017. 
-        In Advances in Neural Information Processing Systems, pages 6000–6010.
-    ''')
+    parser = argparse.ArgumentParser(
+    'Dyanamic data augmentation for sentence rewriting tasks')
 
     options.train_opts(parser)
     options.model_opts(parser)
+    options.augment_opts(parser)
     args = parser.parse_args()
     main(args)
