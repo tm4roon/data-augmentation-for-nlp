@@ -28,13 +28,13 @@ You can choose either transformer ([Vaswani et al. 2017](https://arxiv.org/abs/1
 ![]()
 
 ![]()
-
+<br>
 
 
 ## Data Augmentation
 
 You can choose a data augmentation strategy, using a combination of a sampling strategy `--sampling-strategy` and a generation strategy `--augmentation-strategy`. If you need to training without data augmentation, please use `--augmentation-strategy base`.
-
+<br>
  
 
 
@@ -47,7 +47,7 @@ This option decides how to sample token's positions in original sentence pairs.
 | --------- | ------------------------------------------------------------ |
 | random    | randomly sample tokens.                                      |
 | uif       | sample tokens from **u**nigram **i**nverse **f**requency distribution. |
-
+<br>
 
 
 ### Generation storategies
@@ -63,8 +63,8 @@ This option decides how to sample token's positions in original sentence pairs.
 | ppdb      |                                                              |
 | word2vec  |                                                              |
 | bert      |                                                              |
+<br>
 
-### 
 
 ## Replacing probability scheduling
 
