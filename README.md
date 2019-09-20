@@ -1,16 +1,6 @@
 # Dynamic Data Augmentation for Sentence Rewritings
 
-This code is an implementation of **dynamic data augmentation** for sentence rewriting tasks, such as summarization, grammatical error correction, paraphrase generation, text simplification, and style transfer. The sentence rewriting task needs pairs of an original sentence and a rewritten sentence. The dynamic data augmentation is an expanding training data method, which dynamically generates pseudo-sentences from supervised sentence pairs in the training step. The following data augmentation strategies operate tokens sampled in a sentence. 
-
-- **dropout**: drop tokens (Iyyer et al., 2015; Lample et al., 2017);
-
-- **blank**: replace tokens with a placeholder token (Xie et al., 2017);
-- **smooth**: replace tokens with a sample from the unigram frequency distribution over the vocabulary (Xie et al., 2017); 
-- **wordnet**:  
-- **ppdb**:
-- **word2vec**:
-- **bert**:
-
+This code is an implementation of **dynamic data augmentation** for sentence rewriting tasks, such as summarization, grammatical error correction, paraphrase generation, text simplification, and style transfer. The sentence rewriting task needs pairs of an original sentence and a rewritten sentence. The dynamic data augmentation is an expanding training data method, which dynamically generates pseudo-sentences from supervised sentence pairs in the training step. 
 
 
 ## Installation
