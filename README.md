@@ -8,8 +8,8 @@ This code is an implementation of **dynamic data augmentation** for sentence rew
 This code is depend on the following.
 
 - python==3.6.5
-- pytorch1.1.0
-- Pytorch-transformers1.2.0
+- pytorch==1.1.0
+- Pytorch-transformers==1.2.0
 
 ```sh
 git clone /path/to/this/repository
