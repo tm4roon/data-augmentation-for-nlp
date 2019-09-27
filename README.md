@@ -1,16 +1,6 @@
 # Dynamic Data Augmentation for Sentence Rewritings
 
-This code is an implementation of **dynamic data augmentation** for sentence rewriting tasks, such as summarization, grammatical error correction, paraphrase generation, text simplification, and style transfer. The sentence rewriting task needs pairs of an original sentence and a rewritten sentence. The dynamic data augmentation is an expanding training data method, which dynamically generates pseudo-sentences from supervised sentence pairs in the training step. The following data augmentation strategies operate tokens sampled in a sentence. 
-
-- **dropout**: drop tokens (Iyyer et al., 2015; Lample et al., 2017);
-
-- **blank**: replace tokens with a placeholder token (Xie et al., 2017);
-- **smooth**: replace tokens with a sample from the unigram frequency distribution over the vocabulary (Xie et al., 2017); 
-- **wordnet**:  
-- **ppdb**:
-- **word2vec**:
-- **bert**:
-
+This code is an implementation of **dynamic data augmentation** for sentence rewriting tasks, such as summarization, grammatical error correction, paraphrase generation, text simplification, and style transfer. The sentence rewriting task needs pairs of an original sentence and a rewritten sentence. The dynamic data augmentation is an expanding training data method, which dynamically generates pseudo-sentences from supervised sentence pairs in the training step. 
 
 
 ## Installation
@@ -18,8 +8,8 @@ This code is an implementation of **dynamic data augmentation** for sentence rew
 This code is depend on the following.
 
 - python==3.6.5
-- pytorch1.1.0
-- Pytorch-transformers1.2.0
+- pytorch==1.1.0
+- Pytorch-transformers==1.2.0
 
 ```sh
 git clone /path/to/this/repository
@@ -38,13 +28,13 @@ You can choose either transformer ([Vaswani et al. 2017](https://arxiv.org/abs/1
 ![]()
 
 ![]()
-
+<br>
 
 
 ## Data Augmentation
 
 You can choose a data augmentation strategy, using a combination of a sampling strategy `--sampling-strategy` and a generation strategy `--augmentation-strategy`. If you need to training without data augmentation, please use `--augmentation-strategy base`.
-
+<br>
  
 
 
@@ -57,7 +47,7 @@ This option decides how to sample token's positions in original sentence pairs.
 | --------- | ------------------------------------------------------------ |
 | random    | randomly sample tokens.                                      |
 | uif       | sample tokens from **u**nigram **i**nverse **f**requency distribution. |
-
+<br>
 
 
 ### Generation storategies
@@ -73,8 +63,8 @@ This option decides how to sample token's positions in original sentence pairs.
 | ppdb      |                                                              |
 | word2vec  |                                                              |
 | bert      |                                                              |
+<br>
 
-### 
 
 ## Replacing probability scheduling
 
