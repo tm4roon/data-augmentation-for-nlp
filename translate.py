@@ -12,7 +12,7 @@ from pytorch_transformers import BertTokenizer as Tokenizer
 
 import options
 
-from dataset import (
+from augmentation_module.dataset import (
     Dataset,
     DataAugmentationIterator,
 )

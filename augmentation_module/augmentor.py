@@ -19,7 +19,7 @@ class ReplacingAugmentor(object):
         words = self.tokenizer.tokenize(sentence)
         if self.to_word:
             words = bpe2word(words)
-
+    
         selected_positions = self.selector(words, rate)
         sentence = ' '.join(self.generator(words, selected_positions))
         if self.to_word:

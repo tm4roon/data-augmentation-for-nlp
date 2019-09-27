@@ -1,37 +1,55 @@
 # -*- coding: utf-8 -*-
 
 
-def augment_opts(parser):
-    # common args
-    group = parser.add_argument_group('Data-augmentation options')
-    group.add_argument('--sampling-method', '-sampling-method',
-        choices=['random'], default='random',
-        help='method of sampling token\'s position for augmentation')
-    group.add_argument('--side', '-side', default='src',
-        choices=['src', 'tgt', 'both'],
-        help='side augmented data, source language or target language')
-    group.add_argument('--init-replacing-rate', '-init-replacing-rate', 
-        type=float, default=0.1, 
-        help='probability of replacing token in a sentence')
-    group.add_argument('--ar-scheduler', '-ar-scheduler',
-        default='constant', choices=['constant', 'linear', 'exponential'],
-        help='scheduler of replacing probability')
+def sub_opts(parser):
+    group = parser.add_argument_group('Sub-options')
 
-    assert 'augment' in vars(parser.parse_args()).keys(), \
-        'Please import `options.train_opts` before `options.augment_opts`.'
-    augmentation_method = vars(parser.parse_args())['augment']
-    if augmentation_method == 'smooth':
-        group.add_argument('--unigram-frequency-file', '-unigram-frequency-file',
-            default='./data/others/jawiki-unigram-frequency.tsv',
-            help='path to file  which contains unigram and its frequency')
-    elif augmentation_method == 'bert':
-        group.add_argument('--model', '-model', default='./path/to/bert/',
-            help='path to BERT model file')
+    # augmentation
+    ## smooth (unigram and bigramKN)
+    group.add_argument('--unigram-frequency-for-generation', 
+        '-unigram-frequency-for-generation',
+        default='./data/others/bccwj-unidic-unigram.tsv',
+        help='path to file  which contains unigram and its frequency')
+    group.add_argument('--bigram-frequency-for-generation', 
+        '-bigram-frequency-for-generation',
+        default='./data/others/bccwj-unidic-bigram.tsv',
+        help='path to file  which contains bigram and its frequency')
+    ## word2vec
+    group.add_argument('--w2v-file', '-w2v-file',
+        default='./data/others/bccwj-skipgram.bin',
+        help='path to word embedding file, which is word2vec format')
+    ## bert
+    group.add_argument('--model', '-model', default='./path/to/bert/',
+        help='path to BERT model file')
+
+
+    # sampling
+    ## uif
+    group.add_argument('--unigram-frequency-for-uif', '-unigram-frequency-for-uif',
+        default='./data/others/jawiki-unigram-frequency.tsv',
+        help='path to file  which contains unigram and its frequency')
+    group.add_argument('--bigram-frequency-for-sampling', 
+        '-bigram-frequency-for-sampling',
+        default='./data/others/bccwj-unidic-bigram.tsv',
+        help='path to file  which contains bigram and its frequency')
+    
+
+    # scheduling
+    ## step
+    group.add_argument('--step-size', '-step-size', type=int, default=10,
+        help='step size when augmentation rate is decayed')
+    group.add_argument('--decay', '-decay', type=float, default=0.5,
+        help='decay of augmentation rate per step-size')
+    ## warmup-constant, warmup-linear
+    group.add_argument('--warmup-epoch', '-warmup-epoch', type=int, default=3,
+        help='Number of epoch for warm-up.')
     return group
 
 
 def train_opts(parser):
     group = parser.add_argument_group('Training options')
+
+    # data 
     group.add_argument('--savedir', '-savedir', default='./checkpoints', 
         help='path to save models')
     group.add_argument('--train', '-train', default='./data/samples/sample_train.tsv',
@@ -48,13 +66,13 @@ def train_opts(parser):
         help='maximum sentence length of source side for training')
     group.add_argument('--tgt-maxlen', '-tgt-maxlen', type=int, default=1024,
         help='maximum sentence length of target side for training')
+
+    # model 
     group.add_argument('--arch', '-arch', choices=['transformer', 'translm'], 
         default='transformer',
         help='architecutre for machine translation')
-    group.add_argument('--augment', '-augment',
-        choices=['base', 'dropout', 'blank', 'smooth', 'wordnet', 'word2vec', 'bert'], 
-        default='base',
-        help='augmentation method')
+
+    # training 
     group.add_argument('--batchsize', '-batchsize', type=int, default=32, 
         help='batch size')
     group.add_argument('--max-epoch', '-max-epoch', type=int, default=30, 
@@ -72,6 +90,26 @@ def train_opts(parser):
         help='learning rate scheduler')
     group.add_argument('--gpu', '-gpu', action='store_true',
          help='whether gpu is used')
+
+    # data-augmentation
+    group.add_argument('--augmentation-strategy', '-augmentation-strategy',
+        choices=['base', 'dropout', 'blank', 'unigram', 'bigramkn', 'wordnet', \
+                 'ppdb', 'word2vec', 'bert'], 
+        default='base',
+        help='augmentation method')
+    group.add_argument('--sampling-strategy', '-sampling-strategy',
+        choices=['random', 'absolute_discounting'], default='random',
+        help='method of sampling token\'s position for augmentation')
+    group.add_argument('--ar-scheduler', '-ar-scheduler',
+        default='constant', 
+        choices=['constant', 'linear', 'exp', 'step', 'warmup_constant', 'warmup_linear'],
+        help='scheduler of replacing probability')
+    group.add_argument('--side', '-side', default='src',
+        choices=['src', 'tgt', 'both'],
+        help='side augmented data, source language or target language')
+    group.add_argument('--augmentation-rate', '-augmentation-rate', 
+        type=float, default=0.1, 
+        help='probability of replacing token in a sentence')
     return group
 
     

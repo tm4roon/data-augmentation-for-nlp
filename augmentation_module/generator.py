@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 
+import random
+import os
+
+from functools import reduce
+from operator import concat
 from abc import abstractmethod
+from collections import Counter
 
 
-class Generator(object):
+class BaseGenerator(object):
     def __init__(self):
         pass
 
@@ -12,12 +18,12 @@ class Generator(object):
         raise NotImplementedError
 
 
-class DropoutGenerator(Generator):
+class DropoutGenerator(BaseGenerator):
     def __call__(self, words, positions):
         return [words[i] for i in range(len(words)) if i not in positions]
 
 
-class BlankGenerator(Generator):
+class BlankGenerator(BaseGenerator):
     def __init__(self, mask_token='[MASK]'):
         self.mask_token = mask_token
 
@@ -26,22 +32,99 @@ class BlankGenerator(Generator):
             words[i] = self.mask_token
         return words
 
-# [TODO]
-class SmoothGenerator(object):
-    def __init__(self):
-        raise NotImplementedError
+
+class UnigramGenerator(BaseGenerator):
+    def __init__(self, path):
+        self.uf = {}
+        with open(path, 'r') as f:
+            for line in f:
+                unigram, freq = line.rstrip().split('\t')
+                self.uf[unigram] = int(freq)
+
+    def __call__(self, words, positions):
+        for i in positions:
+            unigram = random.choices(
+                list(self.uf.keys()),
+                weights=list(self.uf.values())
+            )
+            words[i] = unigram[0]
+        return words
+
+
+class BigramKNGenerator(object):
+    def __init__(self, path):
+        self.table = Counter()
+        with open(path, 'r') as f:
+            for line in f:
+                bigram  = line.rstrip().split('\t')[0]
+                bigram = bigram.split(' ')
+                self.table[bigram[1]] += 1
+
+    def __call__(self, words, positions):
+        for i in positions:
+            unigram = random.choices(
+                list(self.table.keys()),
+                weights=list(self.table.values())
+            )
+            words[i] = unigram[0]
+        return words
+
+
+class WordNetGenerator(BaseGenerator):
+    def __init__(self, lang='jpn'):
+        from nltk.corpus import wordnet as wn
+        self.lang = lang
+
+    def __call__(self, words, positions):
+        for i in positions:
+            synonym = self._get_synonym(words[i])
+            if synonym is not None:
+                words[i] = synonym
+        return words
+
+    def _get_synonym(self, word):
+        synsets = wn.synsets(word, lang=self.lang)
+        if len(synsets) == 0:
+            return None
+        synonyms = reduce(concat, [s.lemma_names(self.lang) for s in synsets])
+        
+        if self.lang == 'jpn': # cleaning verbal nouns
+            synonyms = list(map(lambda x: x.replace('+', ''), synonyms))
+        return random.choice(synonyms)
+
+
+class Word2vecGenerator(BaseGenerator):
+    def __init__(self, path, th=0.5):
+        from gensim.models import KeyedVectors
+        _, ext = os.path.splitext(path)
+        is_binary = True if ext == '.bin' else False
+        self.w2v = KeyedVectors.load_word2vec_format(path, binary=is_binary)
+        self.th = th
+
+    def __call__(self, words, positions):
+        for i in positions:
+            synonym = self._get_synonym(words[i])
+            if synonym is not None:
+                words[i] = synonym
+        return words
+
+    def _get_synonym(self, word):
+        try:
+            synonyms = [w for w, i in self.w2v.similar_by_word(word) if i > self.th]
+        except KeyError:
+            return None
+
+        if len(synonyms) == 0:
+            return None
+
+        return random.choice(synonyms)
 
 
 # [TODO]
-class WordNetGenerator(object):
+class PPDBGenerator(object):
     def __init__(self):
         raise NotImplementedError
 
-
-# [TODO]
-class Word2vecGenerator(object):
-    def __init__(self):
-        raise NotImplementedError
 
 
 # [TODO]

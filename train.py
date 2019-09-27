@@ -35,6 +35,7 @@ from augmentation_module.dataset import (
 from augmentation_module import augmentor
 from augmentation_module import generator
 from augmentation_module import sampler
+from augmentation_module import scheduler
 
 from models.encoder import TransformerEncoder
 from models.decoder import TransformerDecoder
@@ -148,27 +149,40 @@ def main(args):
         display_stats(stats)
 
     # set data-augmentation module
-    if args.sampling_method == 'random':
-        sampling_fn = sampler.RandomSampler()
-  
-    if args.augment == 'base':
+    to_word = False
+
+
+    if args.sampling_strategy == 'random':
+        sampling_fn = sampler.UniformSampler()
+    elif args.sampling_strategy == 'absolute_discounting':
+        sampling_fn = sampler.AbsDiscountSampler(
+        args.bigram_frequency_for_sampling)
+        to_word = True
+
+
+    if args.augmentation_strategy == 'base':
         augmentor_fn = None
     else:
-        to_word = False
-        if args.augment == 'dropout':
+        if args.augmentation_strategy == 'dropout':
             generator_fn = generator.DropoutGenerator()
-        elif args.augment == 'blank':
+        elif args.augmentation_strategy == 'blank':
             generator_fn = generator.BlankGenerator(
                 mask_token=tokenizer.mask_token)
-        elif args.augment == 'smooth':
-            generator_fn = generator.SmoothGenerator()
-        elif args.augment == 'wordnet':
-            generator_fn = generator.WordNetGenerator()
+        elif args.augmentation_strategy == 'unigram':
+            generator_fn = generator.UnigramGenerator(
+                args.unigram_frequency_for_generation)
+            to_word=True
+        elif args.augmentation_strategy == 'bigramkn':
+            generator_fn = generator.BigramKNGenerator(
+                args.bigram_frequency_for_generation)
+            to_word=True
+        elif args.augmentation_strategy == 'wordnet':
+            generator_fn = generator.WordNetGenerator(lang='jpn')
             to_word = True
-        elif args.augment == 'word2vec':
-            generator_fn = generator.Word2vecGenerator()
+        elif args.augmentation_strategy == 'word2vec':
+            generator_fn = generator.Word2vecGenerator(args.w2v_file)
             to_word = True
-        elif args.augment == 'bert':
+        elif args.augmentation_strategy == 'bert':
             generator_fn = generator.BertGenerator()
         augmentor_fn = augmentor.ReplacingAugmentor(
             tokenizer, sampling_fn, generator_fn, to_word=to_word)
@@ -177,11 +191,8 @@ def main(args):
     train_iter = DataAugmentationIterator(
         data=train_data,
         batchsize=args.batchsize,
-        max_epoch=args.max_epoch,
-        init_rate=args.init_replacing_rate,
         side=args.side,
         augmentor=augmentor_fn,
-        scheduling=args.ar_scheduler,
         shuffle=True,
     )
 
@@ -191,6 +202,47 @@ def main(args):
         augmentor=None,
         shuffle=False,
     )
+
+    # set scheduler for dynamic data-augmentation
+    if args.ar_scheduler == 'constant':
+        ar_scheduler = scheduler.ConstantAR(
+            iterator=train_iter, 
+            augmentation_rate=args.augmentation_rate,
+        )
+    elif args.ar_scheduler == 'linear':
+        ar_scheduler = scheduler.LinearAR(
+            iterator=train_iter,
+            augmentation_rate=args.augmentation_rate, 
+            max_epoch=args.max_epoch
+        )
+    elif args.ar_scheduler == 'exp':
+        ar_scheduler = scheduler.ExponentialAR(
+            iterator=train_iter,
+            augmentation_rate=args.augmentation_rate,
+        )
+    elif args.ar_scheduler == 'step':
+        ar_scheduler = scheduler.StepAR(
+            iterator=train_iter,
+            augmentation_rate=args.augmentation_rate,
+            step_size=args.step_size,
+            decay=args.decay,
+        )
+    elif args.ar_scheduler == 'warmup_constant':
+        ar_scheduler = scheduler.WarmupConstantAR(
+            iterator=train_iter,
+            augmentation_rate=args.augmentation_rate,
+            warmup_epoch=args.warmup_epoch,
+            total_epoch=args.max_epoch,
+        )
+    elif args.ar_scheduler == 'warmup_linear':
+        ar_scheduler = scheduler.WarmupLinearAR(
+            iterator=train_iter,
+            augmentation_rate=args.augmentation_rate,
+            warmup_epoch=args.warmup_epoch,
+            total_epoch=args.max_epoch,
+        )
+    else:
+        raise NotImplementedError
 
     pad_idx = tokenizer.pad_token_id
     bos_idx = tokenizer.bos_token_id
@@ -225,7 +277,7 @@ def main(args):
         lr_scheduler = pytorch_transformers.ConstantLRSchedule(optimizer)
     elif args.lr_scheduler == 'warmup_constant':
         lr_scheduler = pytorch_transformers.WarmupConstantSchedule(
-            optimizer, warmup_steps=warmup_steps, t_total=t_total)
+            optimizer, warmup_steps=warmup_steps)
     elif args.lr_scheduler == 'warmup_linear':
         lr_scheduler = pytorch_transformers.WarmupLinearSchedule(
             optimizer, warmup_steps=warmup_steps, t_total=t_total)
@@ -247,10 +299,12 @@ def main(args):
     while epoch <= max_epoch:
         # train
         model.train()
-        train_loss = step(tokenizer, model, train_iter, criterion, optimizer, lr_scheduler, device)
+        train_loss = step(tokenizer, model, train_iter, criterion, optimizer, 
+            lr_scheduler, device)
 
         model.eval()
-        valid_loss = step(tokenizer, model, valid_iter, criterion, optimizer, lr_scheduler, device)
+        valid_loss = step(tokenizer, model, valid_iter, criterion, optimizer, 
+            lr_scheduler, device)
 
         # saving model
         save_vars = {
@@ -270,14 +324,16 @@ def main(args):
         torch.save(save_vars, filename)
 
         epoch += 1
+        ar_scheduler.step()
 
  
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-    'Dyanamic data augmentation for sentence rewriting tasks')
+        'Dyanamic data augmentation for sentence rewriting tasks'
+    )
 
     options.train_opts(parser)
     options.model_opts(parser)
-    options.augment_opts(parser)
+    options.sub_opts(parser)
     args = parser.parse_args()
     main(args)

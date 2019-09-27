@@ -5,8 +5,7 @@ import random
 
 import torch
 from functools import reduce
-
-from .scheduler import get_scheduler
+from tqdm import tqdm
 
 
 class Dataset(object):
@@ -60,8 +59,8 @@ class Dataset(object):
     
 
 class DataAugmentationIterator(object):
-    def __init__(self, data, batchsize, max_epoch=-1, init_rate=0.0, side='both', 
-        augmentor=None, scheduling='constant', batch_first=False, shuffle=True):
+    def __init__(self, data, batchsize, side='both', augmentor=None, 
+        batch_first=False, shuffle=True):
         self._initialize()
         self.data = data
         self.bsz = batchsize
@@ -69,16 +68,15 @@ class DataAugmentationIterator(object):
         self.shuffle = shuffle
 
         self.augmentor = augmentor
-        scheduler_fn = get_scheduler(scheduling)
-        self.scheduler = scheduler_fn(init_rate, max_epoch)
         self.side = side
+        self.augmentation_rate = 0.0
 
     def __len__(self):
         return math.ceil(len(self.data)/self.bsz)
 
     def __iter__(self):
         while True:
-            self.augmentation_rate = self.scheduler(self.current_epoch)
+            # self.augmentation_rate = self.scheduler(self.current_epoch)
             self._init_batches()
             for batch in self.batches:
                 self.n_update += 1
