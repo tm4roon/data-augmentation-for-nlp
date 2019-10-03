@@ -25,10 +25,10 @@ from models.transformer import (
 )
 
 def id2w(tokenizer, pred):
-    words = tokenizer.convert_ids_to_tokens(pred)
+    words = tokenizer.decode(pred).split(' ')
     if '[EOS]' in words:
         words = words[1:words.index('[EOS]')]
-    return ' '.join(words).replace(' [PAD]', '')
+    return ' '.join(words)
 
 
 def main(args):
@@ -73,7 +73,8 @@ def main(args):
         model = Transformer(encoder, decoder, bos_idx).to(device)
     elif train_args.arch == 'translm':
         sep_idx = tokenizer.sep_token_id
-        model = TranslationLM(train_args, len(tokenizer), pad_idx, bos_idx, sep_idx).to(device)
+        model = TranslationLM(train_args, len(tokenizer), 
+            pad_idx, bos_idx, sep_idx).to(device)
     model.load_state_dict(model_params)
 
     model.eval()

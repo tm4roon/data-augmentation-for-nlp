@@ -151,7 +151,6 @@ def main(args):
     # set data-augmentation module
     to_word = False
 
-
     if args.sampling_strategy == 'random':
         sampling_fn = sampler.UniformSampler()
     elif args.sampling_strategy == 'absolute_discounting':
@@ -181,6 +180,9 @@ def main(args):
             to_word = True
         elif args.augmentation_strategy == 'word2vec':
             generator_fn = generator.Word2vecGenerator(args.w2v_file)
+            to_word = True
+        elif args.augmentation_strategy == 'ppdb':
+            generator_fn = generator.PPDBGenerator(args.ppdb_file)
             to_word = True
         elif args.augmentation_strategy == 'bert':
             generator_fn = generator.BertGenerator()

@@ -89,12 +89,12 @@ class DataAugmentationIterator(object):
         self.current_epoch = 1
 
     def _init_batches(self):
+        # shuffle the data order
+        if self.shuffle:
+            self.data.examples = random.sample(self.data.examples, len(self.data))
+
         # augment data and numericalize
         self.augmented_data = [self._augment(s) for s in self.data.examples]
-
-        # shuffle the augumented data order
-        if self.shuffle:
-            self.augmented_data = random.sample(self.augmented_data, len(self.augmented_data))
 
         self.batches = [
             self._padding(self.augmented_data[i:i+self.bsz])

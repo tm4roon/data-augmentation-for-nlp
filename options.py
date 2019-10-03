@@ -18,6 +18,10 @@ def sub_opts(parser):
     group.add_argument('--w2v-file', '-w2v-file',
         default='./data/others/bccwj-skipgram.bin',
         help='path to word embedding file, which is word2vec format')
+    ## ppdb
+    group.add_argument('--ppdb-file', '-ppdb-file',
+        default='./data/others/jppdb-m.tsv',
+        help='path to paraphrase database, which is tsv ormat')
     ## bert
     group.add_argument('--model', '-model', default='./path/to/bert/',
         help='path to BERT model file')
@@ -108,7 +112,7 @@ def train_opts(parser):
         choices=['src', 'tgt', 'both'],
         help='side augmented data, source language or target language')
     group.add_argument('--augmentation-rate', '-augmentation-rate', 
-        type=float, default=0.1, 
+        type=float, default=0.2, 
         help='probability of replacing token in a sentence')
     return group
 
@@ -158,7 +162,7 @@ def model_opts(parser):
 
 
 def translate_opts(parser):
-    group = parser.add_argument_group('Translation options')
+    group = parser.add_argument_group('Translation')
     group.add_argument('--model', '-model',
         default='./checkpoints/checkpoint_best.pt',
         help='model file for translation')
@@ -173,4 +177,36 @@ def translate_opts(parser):
         help='maximum length of output sentence')
     group.add_argument('--gpu', '-gpu', action='store_true',
          help='whether gpu is used')
+    return group
+
+
+def generate_opts(parser):
+    group = parser.add_argument_group('Generation for Synthetic data')
+    group.add_argument('--input', '-input', default='./data/samples/sample_train.tsv',
+        help='filename of the train data')
+    group.add_argument('--vocab-file', '-vocab-file', 
+        default='./data/vocab/bccwj-bpe.vocab',
+        help='vocabulary file')
+    group.add_argument('--src-minlen', '-src-minlen', type=int, default=0,
+        help='minimum sentence length of source side for training')
+    group.add_argument('--tgt-minlen', '-tgt-minlen', type=int, default=0,
+        help='minimum sentence length of target side for training')
+    group.add_argument('--src-maxlen', '-src-maxlen', type=int, default=1024,
+        help='maximum sentence length of source side for training')
+    group.add_argument('--tgt-maxlen', '-tgt-maxlen', type=int, default=1024,
+        help='maximum sentence length of target side for training')
+    group.add_argument('--augmentation-strategy', '-augmentation-strategy',
+        choices=['base', 'dropout', 'blank', 'unigram', 'bigramkn', 'wordnet', \
+                 'ppdb', 'word2vec', 'bert'], 
+        default='base',
+        help='augmentation method')
+    group.add_argument('--sampling-strategy', '-sampling-strategy',
+        choices=['random', 'absolute_discounting'], default='random',
+        help='method of sampling token\'s position for augmentation')
+    group.add_argument('--side', '-side', default='src',
+        choices=['src', 'tgt', 'both'],
+        help='side augmented data, source language or target language')
+    group.add_argument('--augmentation-rate', '-augmentation-rate', 
+        type=float, default=0.2, 
+        help='probability of replacing token in a sentence')
     return group

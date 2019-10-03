@@ -120,14 +120,31 @@ class Word2vecGenerator(BaseGenerator):
         return random.choice(synonyms)
 
 
-# [TODO]
 class PPDBGenerator(object):
-    def __init__(self):
-        raise NotImplementedError
+    def __init__(self, path):
+        self.table = {}
+        with open(path, 'r') as f:
+            for line in f:
+                line = line.rstrip().split('\t')
+                self.table[line[0]] = self.table.get(line[1], []) + [line[1]]
 
+    def __call__(self, words, positions):
+        for i in positions:
+            synonym = self._get_synonym(words[i])
+            if synonym is not None:
+                words[i] = synonym
+        return words
 
+    def _get_synonym(self, word):
+        synonyms = self.table.get(word, None)
+        if synonyms is None:
+            return None
+        synonym = random.choice(synonyms)
+        return synonym
 
 # [TODO]
 class BERTGenerator(object):
-    def __init__(self):
+    def __init__(self, tokenizer, model):
         raise NotImplementedError
+
+
