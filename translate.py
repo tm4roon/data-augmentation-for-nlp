@@ -60,6 +60,7 @@ def main(args):
     test_iter = DataAugmentationIterator(
         data=test_data,
         batchsize=args.batchsize,
+        init_rate=0.0,
         augmentor=None,
         shuffle=False,
     )
@@ -67,18 +68,19 @@ def main(args):
     pad_idx = tokenizer.pad_token_id
     bos_idx = tokenizer.bos_token_id
 
-    if train_args.arch == 'transformer':
-        encoder = TransformerEncoder(train_args, len(tokenizer), pad_idx)
-        decoder = TransformerDecoder(train_args, len(tokenizer), pad_idx)
-        model = Transformer(encoder, decoder, bos_idx).to(device)
-    elif train_args.arch == 'translm':
-        sep_idx = tokenizer.sep_token_id
-        model = TranslationLM(train_args, len(tokenizer), 
-            pad_idx, bos_idx, sep_idx).to(device)
+    encoder = TransformerEncoder(train_args, len(tokenizer), pad_idx)
+    decoder = TransformerDecoder(train_args, len(tokenizer), pad_idx)
+    model = Transformer(encoder, decoder, bos_idx).to(device)
+    # elif train_args.arch == 'translm':
+    #     sep_idx = tokenizer.sep_token_id
+    #     model = TranslationLM(train_args, len(tokenizer), 
+    #         pad_idx, bos_idx, sep_idx).to(device)
     model.load_state_dict(model_params)
 
     model.eval()
-    for samples in tqdm(test_iter, total=len(test_iter)):
+    pbar = tqdm(test_iter, dynamic_ncols=True)
+    for samples in pbar:
+        pbar.set_description(f'[translate]')
         srcs = samples[0].to(device)
         outs = model.generate(srcs, args.maxlen).transpose(0, 1).tolist()
         sents = [id2w(tokenizer, out) for out in outs]

@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 
 import random
+import copy
 import os
+
+import numpy as np
 
 from functools import reduce
 from operator import concat
@@ -35,44 +38,55 @@ class BlankGenerator(BaseGenerator):
 
 class UnigramGenerator(BaseGenerator):
     def __init__(self, path):
-        self.uf = {}
+        self.unigrams = []
+        freqs = []
         with open(path, 'r') as f:
             for line in f:
                 unigram, freq = line.rstrip().split('\t')
-                self.uf[unigram] = int(freq)
+                self.unigrams.append(unigram)
+                freqs.append(int(freq))
+        freqs = np.array(freqs)
+        self.weights = freqs / freqs.sum() 
 
     def __call__(self, words, positions):
-        for i in positions:
-            unigram = random.choices(
-                list(self.uf.keys()),
-                weights=list(self.uf.values())
-            )
-            words[i] = unigram[0]
+        sub_idx = self._get_subs(len(positions))
+        for p, i in zip(positions, sub_idx):
+            words[p] = self.unigrams[i]
         return words
+
+    def _get_subs(self, n):
+        cumsum = np.cumsum(self.weights)
+        rdm_unif = np.random.rand(n)
+        return np.searchsorted(cumsum, rdm_unif)
 
 
 class BigramKNGenerator(object):
     def __init__(self, path):
-        self.table = Counter()
+        table = Counter()
         with open(path, 'r') as f:
             for line in f:
                 bigram  = line.rstrip().split('\t')[0]
                 bigram = bigram.split(' ')
-                self.table[bigram[1]] += 1
+                table[bigram[1]] += 1
+        self.unigrams = list(table.keys())
+        freqs = np.array(list(table.values()))
+        self.weights = freqs / freqs.sum()
 
     def __call__(self, words, positions):
-        for i in positions:
-            unigram = random.choices(
-                list(self.table.keys()),
-                weights=list(self.table.values())
-            )
-            words[i] = unigram[0]
+        sub_idx = self._get_subs(len(positions))
+        for p, i in zip(positions, sub_idx):
+            words[p] = self.unigrams[i]
         return words
+
+    def _get_subs(self, n):
+        cumsum = np.cumsum(self.weights)
+        rdm_unif = np.random.rand(n)
+        return np.searchsorted(cumsum, rdm_unif)
 
 
 class WordNetGenerator(BaseGenerator):
+    from nltk.corpus import wordnet as wn
     def __init__(self, lang='jpn'):
-        from nltk.corpus import wordnet as wn
         self.lang = lang
 
     def __call__(self, words, positions):
@@ -83,10 +97,13 @@ class WordNetGenerator(BaseGenerator):
         return words
 
     def _get_synonym(self, word):
-        synsets = wn.synsets(word, lang=self.lang)
+        synsets = self.wn.synsets(word, lang=self.lang)
         if len(synsets) == 0:
             return None
+
         synonyms = reduce(concat, [s.lemma_names(self.lang) for s in synsets])
+        if len(synonyms) == 0:
+            return None
         
         if self.lang == 'jpn': # cleaning verbal nouns
             synonyms = list(map(lambda x: x.replace('+', ''), synonyms))

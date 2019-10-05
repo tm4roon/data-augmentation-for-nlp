@@ -41,25 +41,26 @@ from models.encoder import TransformerEncoder
 from models.decoder import TransformerDecoder
 from models.transformer import (
     Transformer,
-    TranslationLM,
 )
 
 
 def display_stats(stats):
     for k in stats.keys():
         coverage = 100 * (stats[k]['n_tokens'] - stats[k]['n_unks']) / stats[k]['n_tokens']
-        print(f"| [{k}] {stats[k]['n_tokens']} tokens,", end='')
+        print(f"  | [{k}] {stats[k]['n_tokens']} tokens,", end='')
         print(f" coverage: {coverage:.{4}}%")
     print('')
 
 
-def step(tokenizer, model, iterator, criterion, optimizer, lr_scheduler, device):
+def step(model, iterator, criterion, optimizer, lr_scheduler, device, mode):
         pbar = tqdm(iterator, dynamic_ncols=True) if model.training else iterator
         total_loss = 0.0
-        for srcs, tgts in pbar:
+        for pair in pbar:
             optimizer.zero_grad()
-            srcs = srcs.to(device)
-            tgts = tgts.to(device)
+            if len(pair) != 2:
+                continue
+            srcs = pair[0].to(device)
+            tgts = pair[1].to(device)
             dec_outs = model(srcs, tgts[:-1])
             loss = criterion(
                 dec_outs.view(-1, dec_outs.size(2)), 
@@ -71,13 +72,12 @@ def step(tokenizer, model, iterator, criterion, optimizer, lr_scheduler, device)
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), args.clip)
                 optimizer.step()
-                lr_scheduler.step()
 
                 # setting of progressbar
                 augmentation_rate = iterator.augmentation_rate \
                     if iterator.augmentor is not None else 0.0
 
-                pbar.set_description(f'epoch {str(iterator.current_epoch).zfill(3)}')
+                pbar.set_description(f'[{mode}] epoch {str(iterator.current_epoch).zfill(3)}')
                 progress_state = OrderedDict(
                     loss=loss.item(),
                     ppl=math.exp(loss.item()),
@@ -97,16 +97,21 @@ def step(tokenizer, model, iterator, criterion, optimizer, lr_scheduler, device)
         print(f'| {mode} ', end='') 
         print(f'| loss {total_loss:.{4}} ', end='')
         print(f'| ppl {math.exp(total_loss):.{4}} |')
-
         return total_loss
 
 
 def main(args):
     device = torch.device('cuda' if args.gpu and torch.cuda.is_available else 'cpu')
 
+    if args.fine_tuning is not None:
+        load_dir = os.path.dirname(args.fine_tuning)
+        vocab_file = os.path.join(load_dir, 'vocab.txt')
+    else:
+        vocab_file = args.vocab_file
+
     # set tokenizer
     tokenizer = Tokenizer(
-        args.vocab_file,
+        vocab_file,
         do_basic_tokenize=False, 
         bos_token='[BOS]',
         eos_token='[EOS]',
@@ -138,7 +143,7 @@ def main(args):
     )
 
     # display data statistics
-    print(f'| [share] Vocabulary: {len(tokenizer)} types')
+    print(f'[share] Vocabulary: {len(tokenizer)} types')
     print('')
 
     train_stats = train_data.state_statistics()
@@ -193,6 +198,7 @@ def main(args):
     train_iter = DataAugmentationIterator(
         data=train_data,
         batchsize=args.batchsize,
+        init_rate=args.augmentation_rate,
         side=args.side,
         augmentor=augmentor_fn,
         shuffle=True,
@@ -201,6 +207,7 @@ def main(args):
     valid_iter = DataAugmentationIterator(
         data=valid_data,
         batchsize=args.batchsize,
+        init_rate=0.0,
         augmentor=None,
         shuffle=False,
     )
@@ -229,20 +236,20 @@ def main(args):
             step_size=args.step_size,
             decay=args.decay,
         )
-    elif args.ar_scheduler == 'warmup_constant':
-        ar_scheduler = scheduler.WarmupConstantAR(
-            iterator=train_iter,
-            augmentation_rate=args.augmentation_rate,
-            warmup_epoch=args.warmup_epoch,
-            total_epoch=args.max_epoch,
-        )
-    elif args.ar_scheduler == 'warmup_linear':
-        ar_scheduler = scheduler.WarmupLinearAR(
-            iterator=train_iter,
-            augmentation_rate=args.augmentation_rate,
-            warmup_epoch=args.warmup_epoch,
-            total_epoch=args.max_epoch,
-        )
+    # elif args.ar_scheduler == 'warmup_constant':
+    #     ar_scheduler = scheduler.WarmupConstantAR(
+    #         iterator=train_iter,
+    #         augmentation_rate=args.augmentation_rate,
+    #         warmup_epoch=args.warmup_epoch,
+    #         total_epoch=args.max_epoch,
+    #     )
+    # elif args.ar_scheduler == 'warmup_linear':
+    #     ar_scheduler = scheduler.WarmupLinearAR(
+    #         iterator=train_iter,
+    #         augmentation_rate=args.augmentation_rate,
+    #         warmup_epoch=args.warmup_epoch,
+    #         total_epoch=args.max_epoch,
+    #     )
     else:
         raise NotImplementedError
 
@@ -250,14 +257,19 @@ def main(args):
     bos_idx = tokenizer.bos_token_id
 
     # build model
-    if args.arch == 'transformer':
+    if args.fine_tuning is None:
         encoder = TransformerEncoder(args, len(tokenizer), pad_idx)
         decoder = TransformerDecoder(args, len(tokenizer), pad_idx)
         model = Transformer(encoder, decoder, bos_idx).to(device)
-    elif args.arch == 'translm':
-        sep_idx = tokenizer.sep_token_id
-        model = TranslationLM(args, len(tokenizer), pad_idx, bos_idx, sep_idx).to(device)
-
+    else:
+        load_vars = torch.load(args.fine_tuning)
+        past_args = load_vars['args']
+        past_weights = load_vars['weights'] 
+        encoder = TransformerEncoder(past_args, len(tokenizer), pad_idx)
+        decoder = TransformerDecoder(past_args, len(tokenizer), pad_idx)
+        model = Transformer(encoder, decoder, bos_idx).to(device)
+        model.load_state_dict(past_weights)
+        
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
 
     # set optimizer
@@ -271,20 +283,21 @@ def main(args):
     else:
         raise NotImplementedError
 
-
     # set scheduler
-    t_total = args.max_epoch * len(train_iter)
-    warmup_steps = math.floor(t_total * 0.04)
-    if args.lr_scheduler == 'constant':
-        lr_scheduler = pytorch_transformers.ConstantLRSchedule(optimizer)
-    elif args.lr_scheduler == 'warmup_constant':
-        lr_scheduler = pytorch_transformers.WarmupConstantSchedule(
-            optimizer, warmup_steps=warmup_steps)
-    elif args.lr_scheduler == 'warmup_linear':
-        lr_scheduler = pytorch_transformers.WarmupLinearSchedule(
-            optimizer, warmup_steps=warmup_steps, t_total=t_total)
-    else:
-        raise NotImplementedError
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=4)
+
+    # t_total = args.max_epoch * len(train_iter)
+    # warmup_steps = math.floor(t_total * 0.04)
+    # if args.lr_scheduler == 'constant':
+    #     lr_scheduler = pytorch_transformers.ConstantLRSchedule(optimizer)
+    # elif args.lr_scheduler == 'warmup_constant':
+    #     lr_scheduler = pytorch_transformers.WarmupConstantSchedule(
+    #         optimizer, warmup_steps=warmup_steps)
+    # elif args.lr_scheduler == 'warmup_linear':
+    #     lr_scheduler = pytorch_transformers.WarmupLinearSchedule(
+    #         optimizer, warmup_steps=warmup_steps, t_total=t_total)
+    # else:
+    #     raise NotImplementedError
 
 
     print('=============== MODEL ===============')
@@ -294,19 +307,21 @@ def main(args):
     print(optimizer)
     print('')
 
+
     epoch = 1
     max_epoch = args.max_epoch or math.inf
     best_loss = math.inf
+    mode = 'train' if args.fine_tuning is None else 'fine-tuning'
 
-    while epoch <= max_epoch:
+    while epoch <= max_epoch and args.min_lr < optimizer.param_groups[0]['lr']:
         # train
         model.train()
-        train_loss = step(tokenizer, model, train_iter, criterion, optimizer, 
-            lr_scheduler, device)
+        train_loss = step(model, train_iter, criterion, optimizer, 
+            lr_scheduler, device, mode)
 
         model.eval()
-        valid_loss = step(tokenizer, model, valid_iter, criterion, optimizer, 
-            lr_scheduler, device)
+        valid_loss = step(model, valid_iter, criterion, optimizer, 
+            lr_scheduler, device, mode)
 
         # saving model
         save_vars = {
@@ -326,6 +341,7 @@ def main(args):
         torch.save(save_vars, filename)
 
         epoch += 1
+        lr_scheduler.step(valid_loss)
         ar_scheduler.step()
 
  

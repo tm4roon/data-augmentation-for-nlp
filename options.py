@@ -54,13 +54,18 @@ def train_opts(parser):
     group = parser.add_argument_group('Training options')
 
     # data 
+    group.add_argument('--fine-tuning', '-fine-tuning', default=None,
+        help='path to model for fine-tuning')
     group.add_argument('--savedir', '-savedir', default='./checkpoints', 
         help='path to save models')
-    group.add_argument('--train', '-train', default='./data/samples/sample_train.tsv',
+    group.add_argument('--train', '-train', 
+        default='./data/samples/sample_train.tsv',
         help='filename of the train data')
-    group.add_argument('--valid', '-valid', default='./data/samples/sample_valid.tsv',
+    group.add_argument('--valid', '-valid', 
+        default='./data/samples/sample_valid.tsv',
         help='filename of the validation data')
-    group.add_argument('--vocab-file', '-vocab-file', default='./data/vocab/bccwj-bpe.vocab',
+    group.add_argument('--vocab-file', '-vocab-file',
+        default='./data/vocab/bccwj-bpe.vocab',
         help='vocabulary file')
     group.add_argument('--src-minlen', '-src-minlen', type=int, default=0,
         help='minimum sentence length of source side for training')
@@ -71,27 +76,26 @@ def train_opts(parser):
     group.add_argument('--tgt-maxlen', '-tgt-maxlen', type=int, default=1024,
         help='maximum sentence length of target side for training')
 
-    # model 
-    group.add_argument('--arch', '-arch', choices=['transformer', 'translm'], 
-        default='transformer',
-        help='architecutre for machine translation')
+    # # model 
+    # group.add_argument('--arch', '-arch', choices=['transformer', 'translm'], 
+    #     default='transformer',
+    #     help='architecutre for machine translation')
 
     # training 
     group.add_argument('--batchsize', '-batchsize', type=int, default=32, 
         help='batch size')
-    group.add_argument('--max-epoch', '-max-epoch', type=int, default=30, 
+    group.add_argument('--max-epoch', '-max-epoch', type=int, default=80, 
         help='number of epochs')
-    group.add_argument('--save-epoch', '-save-epoch', type=int, default=10)
+    group.add_argument('--save-epoch', '-save-epoch', type=int, default=40)
     group.add_argument('--lr', '-lr', type=float, default=1e-4,
-        help='learning rate')
+        help='initial learning rate')
+    group.add_argument('--min-lr', '-min-lr', type=float, default=1e-7,
+        help='minimum learning rate')
     group.add_argument('--clip', '-clip', type=float, default=1.0,
         help='gradient cliping')
     group.add_argument('--optimizer', '-optimizer', default='adam',
         choices=['sgd', 'adam', 'adamw', 'adagrad'],
         help='optimizer')
-    group.add_argument('--lr-scheduler', '-lr-scheduler', default='constant',
-        choices=['constant', 'warmup_constant', 'warmup_linear'], 
-        help='learning rate scheduler')
     group.add_argument('--gpu', '-gpu', action='store_true',
          help='whether gpu is used')
 

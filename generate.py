@@ -87,7 +87,6 @@ def main(args):
         shuffle=False,
     )
 
-
     scheduler.ConstantAR(
         iterator=iterator, 
         augmentation_rate=args.augmentation_rate,
