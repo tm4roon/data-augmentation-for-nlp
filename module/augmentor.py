@@ -1,14 +1,19 @@
 # -*- coding: utf-8 -*-
 
 from functools import reduce
-from . import utils
-import mojimoji
 import re
 
 
+digit_pattern = re.compile(r'[1-9]+')
+
+
+def normalize(sentence):
+    return digit_pattern.sub('#', sentence)
+
 
 def bpe2word(tokenized_sentence):
-    func = lambda x, y: f"{x}{y.lstrip('##')}" if y.startswith('##') else f"{x} {y}"
+    func = lambda x, y: f"{x}{y.lstrip('##')}" \
+        if y.startswith('##') else f"{x} {y}"
     return reduce(func, tokenized_sentence).split(' ')
 
 
@@ -26,7 +31,7 @@ class ReplacingAugmentor(object):
     
         selected_positions = self.selector(words, rate)
         sentence = ' '.join(self.generator(words, selected_positions))
-        sentence = utils.normalize(sentence)
+        sentence = normalize(sentence)
 
         if self.to_word:
             sentence = ' '.join(self.tokenizer.tokenize(sentence))
