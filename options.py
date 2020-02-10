@@ -19,7 +19,7 @@ def sub_opts(parser):
         help='language in wordnet')
     ## word2vec
     group.add_argument('--w2v-file', '-w2v-file',
-        default='./data/others/sample_skipgram.bin',
+        default='./data/others/sample_skipgram.txt',
         help='path to word embedding file, which is word2vec format')
     ## ppdb
     group.add_argument('--ppdb-file', '-ppdb-file',
