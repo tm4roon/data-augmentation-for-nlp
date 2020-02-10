@@ -11,6 +11,14 @@ from operator import concat
 from abc import abstractmethod
 from collections import Counter
 
+import torch
+
+
+def bpe2word(tokenized_sentence):
+    func = lambda x, y: f"{x}{y.lstrip('##')}" \
+        if y.startswith('##') else f"{x} {y}"
+    return reduce(func, tokenized_sentence)
+
 
 class BaseGenerator(object):
     def __init__(self):
@@ -131,6 +139,7 @@ class Word2vecGenerator(BaseGenerator):
         except KeyError:
             return None
 
+
         if len(synonyms) == 0:
             return None
 
@@ -159,9 +168,44 @@ class PPDBGenerator(object):
         synonym = random.choice(synonyms)
         return synonym
 
-# [TODO]
-class BERTGenerator(object):
-    def __init__(self, tokenizer, model):
-        raise NotImplementedError
 
 
+class BertGenerator(object):
+    def __init__(self, tokenizer, bert, temparature=1.0):
+        self.tokenizer = tokenizer
+        self.mask_token = tokenizer.vocab.mask_token
+        self.cls_token = tokenizer.vocab.cls_token
+        self.sep_token = tokenizer.vocab.sep_token
+        self.mask_idx = tokenizer.vocab.mask_id
+        self.bert = bert
+        self.bert.eval()
+        self.temparature=temparature
+
+        # mask       
+        special_token_ids = [tokenizer.convert_tokens_to_ids(w) for w in
+            tokenizer.vocab.special_tokens_map.values()]
+        self.mask = torch.ones(len(tokenizer.vocab))
+        for i in special_token_ids:
+            self.mask[i] = self.mask[i] * 0
+
+    def __call__(self, words, positions):
+        augmented_words = copy.deepcopy(words)
+        for i in positions:
+            synonym = self._get_synonym(words, i)
+            augmented_words[i] = synonym
+        return augmented_words
+
+    def _get_synonym(self, words, i):
+        input_tokens = [self.cls_token] + words + [self.sep_token]
+        indexed_tokens = self.tokenizer.convert_tokens_to_ids(input_tokens)
+        indexed_tokens[i+1] = self.mask_idx
+        tokens_tensor = torch.tensor([indexed_tokens])
+
+        with torch.no_grad():
+            outputs = self.bert(tokens_tensor)
+            preds = torch.div(outputs[0][0][i+1], self.temparature)
+            preds = torch.softmax(preds, dim=0)
+            preds = torch.mul(preds, self.mask)
+            synonym_id = random.choices(range(len(self.tokenizer.vocab)), 
+                                     weights=preds.tolist())
+            return self.tokenizer.convert_ids_to_tokens(synonym_id)[0]

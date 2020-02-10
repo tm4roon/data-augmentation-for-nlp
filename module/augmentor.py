@@ -1,14 +1,6 @@
 # -*- coding: utf-8 -*-
 
 from functools import reduce
-import re
-
-
-digit_pattern = re.compile(r'[1-9]+')
-
-
-def normalize(sentence):
-    return digit_pattern.sub('#', sentence)
 
 
 def bpe2word(tokenized_sentence):
@@ -26,13 +18,14 @@ class ReplacingAugmentor(object):
 
     def __call__(self, sentence, rate=0.1):
         words = self.tokenizer.tokenize(sentence)
+        # bpe2word
         if self.to_word:
             words = bpe2word(words)
     
         selected_positions = self.selector(words, rate)
         sentence = ' '.join(self.generator(words, selected_positions))
-        sentence = normalize(sentence)
 
+        # word2bpe
         if self.to_word:
             sentence = ' '.join(self.tokenizer.tokenize(sentence))
         return sentence

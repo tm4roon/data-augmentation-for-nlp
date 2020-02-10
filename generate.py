@@ -19,11 +19,11 @@ def main(args):
     # set tokenizer
     vocab = PreDefinedVocab(
         vocab_file=args.vocab_file,
-        bos_token='[BOS]',
-        eos_token='[EOS]',
         unk_token='[UNK]',
         sep_token='[SEP]',
         pad_token='[PAD]',
+        mask_token='[MASK]',
+        cls_token='[CLS]',
     )
 
     tokenizer = WordpieceTokenizer(vocab)
@@ -33,17 +33,13 @@ def main(args):
     # select a sampling module
     if args.sampling_strategy == 'random':
         sampling_fn = sampler.UniformSampler()
-    elif args.sampling_strategy == 'absolute_discounting':
-        sampling_fn = sampler.AbsDiscountSampler(
-        args.bigram_frequency_for_sampling)
-        to_word = True
 
     # select a augmentation module
     if args.augmentation_strategy == 'dropout':
         generator_fn = generator.DropoutGenerator()
     elif args.augmentation_strategy == 'blank':
         generator_fn = generator.BlankGenerator(
-            mask_token=tokenizer.mask_token)
+            mask_token=tokenizer.vocab.mask_token)
     elif args.augmentation_strategy == 'unigram':
         generator_fn = generator.UnigramGenerator(
             args.unigram_frequency_for_generation)
@@ -53,7 +49,7 @@ def main(args):
             args.bigram_frequency_for_generation)
         to_word=True
     elif args.augmentation_strategy == 'wordnet':
-        generator_fn = generator.WordNetGenerator(lang='jpn')
+        generator_fn = generator.WordNetGenerator(lang=args.lang_for_wordnet)
         to_word = True
     elif args.augmentation_strategy == 'word2vec':
         generator_fn = generator.Word2vecGenerator(args.w2v_file)
@@ -62,7 +58,9 @@ def main(args):
         generator_fn = generator.PPDBGenerator(args.ppdb_file)
         to_word = True
     elif args.augmentation_strategy == 'bert':
-        generator_fn = generator.BertGenerator()
+        from pytorch_transformers import BertTokenizer, BertForMaskedLM
+        bert = BertForMaskedLM.from_pretrained(args.model_name_or_path)
+        generator_fn = generator.BertGenerator(tokenizer, bert, args.temparature)
 
     augmentor_fn = augmentor.ReplacingAugmentor(
         tokenizer, sampling_fn, generator_fn, to_word=to_word)
