@@ -32,10 +32,12 @@ class PreDefinedVocab(object):
         with open(vocab_file, 'r') as f:
             self.itos = [w.rstrip() for w in f]
 
+        self.special_tokens_map = {}
         for key, value in kwargs.items():
             if key in self.SPECIAL_TOKEN_ATTRIBUTES and value is not None:
                 setattr(self, key, value)
                 setattr(self, key.split('_')[0] + '_id', self.itos.index(value))
+                self.special_tokens_map[key] = value
         self.stoi = OrderedDict({w: i for i, w in enumerate(self.itos)})
 
 
@@ -104,20 +106,22 @@ class WordpieceTokenizer(object):
                 output_tokens.extend(sub_tokens)
         return output_tokens
 
-    def string2ids(self, tokens):
-        return [self.vocab(w) for w in tokens]
+    def convert_tokens_to_ids(self, tokens):
+        if isinstance(tokens, str):
+            return self.vocab.stoi[tokens]
+        return [self.vocab.stoi[w] for w in tokens]
 
-    def ids2string(self, arr):
-        return [self.vocab.itos[i] for i in ids]
+    def convert_ids_to_tokens(self, arr):
+        return [self.vocab.itos[i] for i in arr]
 
     def encode(self, x):
         tokenized = self.tokenize(x)
-        return string2ids(tokenized)
+        return convert_tokens_to_ids(tokenized)
 
     def decode(self, arr):
         if hasattr(self.vocab, 'eos_id') and tokens in self.vocab.eos_id:
             tokens = tokens[:tokens.index(self.vocab.eos_id)]
-        tokens = self.ids2string(arr)
+        tokens = self.vonbert_ids_to_tokens(arr)
         return  reduce(lambda x, y: f"{x}{y.lstrip('##')}"  
                        if y.startswith('##') else f"{x} {y}", tokens)
 
