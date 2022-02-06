@@ -62,7 +62,6 @@ This option decides how to sample token's positions in original sentence pairs.
 ```sh
 python generate.py \
     --input ./data/sample/sample.txt \
-    --vocab-fle ./data/vocab/bert-base-multilingual-uncased-vocab.txt \
     --augmentation-strategy bert \
     --model-name-or-path bert-base-multilingual-uncased \
     --temparature 1.0
